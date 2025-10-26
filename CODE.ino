@@ -1,4 +1,5 @@
 #include <DHT.h>
+
 #define DHTPIN A1
 #define DHTTYPE DHT11
 
@@ -7,117 +8,148 @@ const int echoPin = 2;
 const int trigPin = 3;
 const int buzzerPin = 13;
 const int laserPin = 22;
-const int ldrPin = 23; // Use digital pin for LDR
+const int ldrPin = 23;
 const int relayPin = 24;
 
 DHT dht(DHTPIN, DHTTYPE);
 
-// Timing variables for buzzer patterns
+// --- Buzzer timing variables ---
+unsigned long currentMillis = 0;
 unsigned long previousMillis = 0;
-const int ldrPatternInterval = 200;  // 200ms ON/OFF for LDR
-const int sonometerPatternInterval = 500; // 500ms ON/OFF for Sonometer
-bool buzzerState = false; // Keeps track of buzzer state
-int alertType = 0; // 0 = No alert, 1 = LDR alert, 2 = Sonometer alert
+unsigned long patternStartMillis = 0;
+bool buzzerState = false;
 
-bool isDebugMode = false; // Set to false for Android output, true for IDE debugging
+const int LDR_INTERVAL = 100;      // Fast beep for LDR alert
+const int SONO_INTERVAL = 500;     // Slow beep for Ultrasonic alert
+const int BOTH_BEEP_ON = 100;      // Each beep ON duration
+const int BOTH_BEEP_OFF = 100;     // Each beep OFF duration
+const int BOTH_PAUSE = 700;        // Pause after triple-beep cycle
+
+int alertType = 0; // 0 = none, 1 = LDR, 2 = Ultrasonic, 3 = Both
+
+// --- Triple beep state ---
+int beepCount = 0;
+bool inBeepCycle = false;
+
+// Soil-moisture thresholds (tune for your sensor)
+const int DRY_THRESHOLD = 400;
+const int WET_THRESHOLD = 600;
 
 void setup() {
   pinMode(laserPin, OUTPUT);
-  digitalWrite(laserPin, HIGH); // Turn laser on
+  digitalWrite(laserPin, HIGH);  // Laser ON
 
   pinMode(relayPin, OUTPUT);
-  digitalWrite(relayPin, LOW); // Relay off initially
+  digitalWrite(relayPin, LOW);   // Relay OFF initially
 
   pinMode(buzzerPin, OUTPUT);
-
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
+  pinMode(ldrPin, INPUT);
 
-  pinMode(ldrPin, INPUT); // Set LDR pin as input
-
-  Serial.begin(9600);
+  Serial.begin(9600); // Used for Bluetooth (HC-05 on pins 0 & 1)
   dht.begin();
 }
 
 void loop() {
-  // Check for laser interruption using LDR
-  int ldrValue = digitalRead(ldrPin); // Read digital state
-  if (ldrValue == HIGH) { // Laser interrupted
-    alertType = 1; // LDR alert
-  } else {
-    alertType = 0; // No alert
-  }
+  currentMillis = millis();
 
-  // Ultrasonic sensor to measure distance
+  // --- LDR beam-break detection ---
+  int ldrValue = digitalRead(ldrPin);
+  bool ldrAlert = (ldrValue == HIGH); // HIGH means beam broken (adjust if inverted)
+
+  // --- Ultrasonic distance detection ---
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
 
-  long duration = pulseIn(echoPin, HIGH, 30000); // 30ms timeout
+  long duration = pulseIn(echoPin, HIGH, 30000); // 30 ms timeout
   int distance = duration * 0.034 / 2;
-  if (distance < 30 && distance > 0) { // Check for valid reading
-    alertType = 2; // Sonometer alert
+  bool sonoAlert = (distance > 0 && distance < 15); // Object within 15 cm
+
+  // --- Determine alert type ---
+  if (ldrAlert && sonoAlert) alertType = 3;
+  else if (ldrAlert) alertType = 1;
+  else if (sonoAlert) alertType = 2;
+  else alertType = 0;
+
+  // --- Soil moisture & relay control ---
+  int soilMoisture = analogRead(soilMoisturePin);
+  if (soilMoisture < DRY_THRESHOLD) {
+    digitalWrite(relayPin, HIGH); // Turn pump ON
+  } else if (soilMoisture > WET_THRESHOLD) {
+    digitalWrite(relayPin, LOW);  // Turn pump OFF
   }
 
-  // Soil moisture sensor
-  int soilMoistureValue = analogRead(soilMoisturePin);
-  if (soilMoistureValue < 500) { // Adjust threshold as per your sensor
-    digitalWrite(relayPin, HIGH);
-  } else {
-    digitalWrite(relayPin, LOW);
-  }
-
-  // Read DHT sensor for temperature and humidity
+  // --- DHT readings ---
   float humidity = dht.readHumidity();
   float temperature = dht.readTemperature();
+
   if (!isnan(humidity) && !isnan(temperature)) {
-    if (isDebugMode) {
-      // Detailed output for debugging in IDE terminal
-      Serial.print("Temperature: ");
-      Serial.print(temperature);
-      Serial.print(" °C, Humidity: ");
-      Serial.print(humidity);
-      Serial.print(" %, Soil Moisture: ");
-      Serial.print(soilMoistureValue);
-      Serial.print(", Distance: ");
-      Serial.print(distance);
-      Serial.print(" cm, LDR: ");
-      Serial.println(ldrValue == HIGH ? "Laser Broken" : "Clear");
-    } else {
-      // Minimal output for Android
-      Serial.print(temperature);
-      Serial.print(";");
-      Serial.print(humidity);
-      Serial.println(";");
-    }
+    // Send over Bluetooth (HC-05)
+    Serial.print(temperature);
+    Serial.print(";");
+    Serial.println(humidity);
   }
 
-  // Handle buzzer patterns
-  handleBuzzer();
+  // --- Handle buzzer patterns ---
+  handleBuzzerPattern();
 
-  // Delay for soil moisture and DHT updates
-  delay(1000);
+  delay(100); // Small cooperative delay (non-blocking)
 }
 
-void handleBuzzer() {
-  unsigned long currentMillis = millis();
-  int interval = 0;
+// ===================================================
+//                Buzzer pattern logic
+// ===================================================
+void handleBuzzerPattern() {
+  switch (alertType) {
+    case 0: // No alert
+      digitalWrite(buzzerPin, LOW);
+      buzzerState = false;
+      inBeepCycle = false;
+      beepCount = 0;
+      break;
 
-  if (alertType == 1) { // LDR Alert
-    interval = ldrPatternInterval;
-  } else if (alertType == 2) { // Sonometer Alert
-    interval = sonometerPatternInterval;
-  } else {
-    digitalWrite(buzzerPin, LOW); // Turn buzzer off for no alert
-    return;
-  }
+    case 1: // LDR only – fast beep
+      if (currentMillis - previousMillis >= LDR_INTERVAL) {
+        previousMillis = currentMillis;
+        buzzerState = !buzzerState;
+        digitalWrite(buzzerPin, buzzerState);
+      }
+      break;
 
-  // Toggle buzzer state based on the interval
-  if (currentMillis - previousMillis >= interval) {
-    previousMillis = currentMillis;
-    buzzerState = !buzzerState;
-    digitalWrite(buzzerPin, buzzerState ? HIGH : LOW);
+    case 2: // Ultrasonic only – slow beep
+      if (currentMillis - previousMillis >= SONO_INTERVAL) {
+        previousMillis = currentMillis;
+        buzzerState = !buzzerState;
+        digitalWrite(buzzerPin, buzzerState);
+      }
+      break;
+
+    case 3: // Both – triple short beeps then pause
+      if (!inBeepCycle) {
+        inBeepCycle = true;
+        beepCount = 0;
+        patternStartMillis = currentMillis;
+        digitalWrite(buzzerPin, HIGH);
+      } else {
+        if (buzzerState && (currentMillis - patternStartMillis >= BOTH_BEEP_ON)) {
+          buzzerState = false;
+          digitalWrite(buzzerPin, LOW);
+          patternStartMillis = currentMillis;
+          beepCount++;
+        } else if (!buzzerState && beepCount < 3 && (currentMillis - patternStartMillis >= BOTH_BEEP_OFF)) {
+          buzzerState = true;
+          digitalWrite(buzzerPin, HIGH);
+          patternStartMillis = currentMillis;
+        } else if (beepCount >= 3 && (currentMillis - patternStartMillis >= BOTH_PAUSE)) {
+          inBeepCycle = false;
+          buzzerState = false;
+          digitalWrite(buzzerPin, LOW);
+        }
+      }
+      break;
   }
 }
