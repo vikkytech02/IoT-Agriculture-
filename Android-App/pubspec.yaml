@@ -1,0 +1,51 @@
+name: iot_agriculture
+description: "Smart IoT Agriculture System – Flutter App to monitor and control soil moisture, temperature, humidity, and water pump."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.2
+  flutter_bluetooth_serial: ^0.4.0
+  permission_handler: ^11.3.1
+  sqflite: ^2.3.0
+  path_provider: ^2.1.2
+  path: ^1.9.0
+  fl_chart: ^0.66.2
+  firebase_core: ^3.5.0
+  cloud_firestore: ^5.4.4
+  change_app_package_name: ^1.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/app_icon.png
+
+# ===================== APP ICON CONFIG =====================
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+
+# ===================== SPLASH SCREEN CONFIG =====================
+flutter_native_splash:
+  color: "#101010"                      # background color (dark)
+  image: assets/icon/app_icon.png       # same image used for splash
+  android: true
+  ios: true
+  android_gravity: center
+  web: false
