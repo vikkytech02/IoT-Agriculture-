@@ -35,6 +35,10 @@ bool inBeepCycle = false;
 const int DRY_THRESHOLD = 400;
 const int WET_THRESHOLD = 600;
 
+// --- Control modes ---
+bool manualMode = false;  // false = auto moisture control, true = manual via app
+bool pumpState = false;
+
 void setup() {
   pinMode(laserPin, OUTPUT);
   digitalWrite(laserPin, HIGH);  // Laser ON
@@ -47,12 +51,37 @@ void setup() {
   pinMode(echoPin, INPUT);
   pinMode(ldrPin, INPUT);
 
-  Serial.begin(9600); // Used for Bluetooth (HC-05 on pins 0 & 1)
+  Serial.begin(9600); // Bluetooth communication
   dht.begin();
+
+  Serial.println("System Ready. Awaiting commands...");
 }
 
 void loop() {
   currentMillis = millis();
+
+  // --- Bluetooth Command Handling ---
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+
+    if (command == "PUMP_ON") {
+      manualMode = true;
+      pumpState = true;
+      digitalWrite(relayPin, HIGH);
+      Serial.println("Pump turned ON manually");
+    } 
+    else if (command == "PUMP_OFF") {
+      manualMode = true;
+      pumpState = false;
+      digitalWrite(relayPin, LOW);
+      Serial.println("Pump turned OFF manually");
+    }
+    else if (command == "AUTO_MODE") {
+      manualMode = false;
+      Serial.println("Switched to AUTO mode");
+    }
+  }
 
   // --- LDR beam-break detection ---
   int ldrValue = digitalRead(ldrPin);
@@ -75,12 +104,18 @@ void loop() {
   else if (sonoAlert) alertType = 2;
   else alertType = 0;
 
-  // --- Soil moisture & relay control ---
+  // --- Soil moisture control ---
   int soilMoisture = analogRead(soilMoisturePin);
-  if (soilMoisture < DRY_THRESHOLD) {
-    digitalWrite(relayPin, HIGH); // Turn pump ON
-  } else if (soilMoisture > WET_THRESHOLD) {
-    digitalWrite(relayPin, LOW);  // Turn pump OFF
+
+  if (!manualMode) {
+    // Auto mode based on soil moisture
+    if (soilMoisture < DRY_THRESHOLD) {
+      digitalWrite(relayPin, HIGH);
+      pumpState = true;
+    } else if (soilMoisture > WET_THRESHOLD) {
+      digitalWrite(relayPin, LOW);
+      pumpState = false;
+    }
   }
 
   // --- DHT readings ---
@@ -88,10 +123,16 @@ void loop() {
   float temperature = dht.readTemperature();
 
   if (!isnan(humidity) && !isnan(temperature)) {
-    // Send over Bluetooth (HC-05)
+    // Send all sensor data to app
+    Serial.print("DATA:");
     Serial.print(temperature);
     Serial.print(";");
-    Serial.println(humidity);
+    Serial.print(humidity);
+    Serial.print(";");
+    Serial.print(soilMoisture);
+    Serial.print(";");
+    Serial.print(pumpState ? "ON" : "OFF");
+    Serial.println();
   }
 
   // --- Handle buzzer patterns ---
