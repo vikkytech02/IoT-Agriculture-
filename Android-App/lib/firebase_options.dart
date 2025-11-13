@@ -53,10 +53,10 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCJOxoSxLos9NIw3tf8eenvXsyMus8FPqU',
-    appId: '1:910705609189:android:4deef8031803e3d451070c',
-    messagingSenderId: '910705609189',
-    projectId: 'iot-agriculture-4b06b',
-    storageBucket: 'iot-agriculture-4b06b.firebasestorage.app',
+    apiKey: 'API-KEY',
+    appId: 'API-ID',
+    messagingSenderId: 'SENDER-ID',
+    projectId: 'YOUR PROJECT ID',
+    storageBucket: 'FIRBASE DETAILS',
   );
 }
